@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Default: Dark Theme (Windows 11 typical calculator dark) */
+  --bg-app: #1c1c1c;
+  --bg-sidebar: #202020;
+  --bg-display: transparent;
+  
+  --bg-btn-num: rgba(50, 50, 50, 0.7);
+  --border-btn-num: rgba(255, 255, 255, 0.05) rgba(255, 255, 255, 0.03) rgba(0, 0, 0, 0.1) rgba(255, 255, 255, 0.03);
+  --color-btn-num-text: #ffffff;
+  
+  --bg-btn-op: rgba(45, 45, 45, 0.7);
+  --border-btn-op: rgba(255, 255, 255, 0.03);
+  --color-btn-op-text: #ffffff;
+  
+  --bg-btn-accent: #0067c0;
+  --bg-btn-accent-hover: #1875d1;
+  --color-btn-accent-text: #ffffff;
+  
+  --bg-btn-hover: rgba(255, 255, 255, 0.09);
+  --bg-btn-active: rgba(255, 255, 255, 0.05);
+  
+  --text-main: #ffffff;
+  --text-sec: #a6a6a6;
+  --text-accent: #60cdff;
+  
+  --border-app: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --mica-blur: blur(20px);
+}
+
+[data-theme="light"] {
+  --bg-app: #f3f3f3;
+  --bg-sidebar: #eaeaea;
+  --bg-display: transparent;
+  
+  --bg-btn-num: rgba(255, 255, 255, 0.85);
+  --border-btn-num: rgba(0, 0, 0, 0.05) rgba(0, 0, 0, 0.03) rgba(0, 0, 0, 0.1) rgba(0, 0, 0, 0.03);
+  --color-btn-num-text: #1c1c1c;
+  
+  --bg-btn-op: rgba(249, 249, 249, 0.7);
+  --border-btn-op: rgba(0, 0, 0, 0.03);
+  --color-btn-op-text: #1c1c1c;
+  
+  --bg-btn-accent: #0067c0;
+  --bg-btn-accent-hover: #005a9e;
+  --color-btn-accent-text: #ffffff;
+  
+  --bg-btn-hover: rgba(0, 0, 0, 0.05);
+  --bg-btn-active: rgba(0, 0, 0, 0.02);
+  
+  --text-main: #1c1c1c;
+  --text-sec: #5c5c5c;
+  --text-accent: #0067c0;
+  
+  --border-app: rgba(0, 0, 0, 0.08);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+  --mica-blur: blur(20px);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: 'Segoe UI', 'Outfit', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  user-select: none;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Animations */
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Fluent Button Styles */
+.fluent-btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.1s ease, border-color 0.1s ease, transform 0.05s ease;
+  user-select: none;
+}
+
+.fluent-btn:hover {
+  background-color: var(--bg-btn-hover);
+}
+
+.fluent-btn:active {
+  transform: scale(0.97);
+  background-color: var(--bg-btn-active);
+}
+
+.fluent-btn.num-key {
+  background-color: var(--bg-btn-num);
+  border-color: var(--border-btn-num);
+  color: var(--color-btn-num-text);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.fluent-btn.op-key {
+  background-color: var(--bg-btn-op);
+  border-color: var(--border-btn-op);
+  color: var(--color-btn-op-text);
+}
+
+.fluent-btn.accent-key {
+  background-color: var(--bg-btn-accent);
+  color: var(--color-btn-accent-text);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.fluent-btn.accent-key:hover {
+  background-color: var(--bg-btn-accent-hover);
+}
+
+.fluent-btn.disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
