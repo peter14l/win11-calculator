@@ -80,7 +80,7 @@ export function parseString(str: string, base: number, wordSize: WordSize): bigi
   try {
     if (base === 10) {
       // Handle potential negative decimal input
-      let val = BigInt(cleaned);
+      const val = BigInt(cleaned);
       return truncateToWordSize(val, wordSize);
     }
     let val = BigInt("0x" + cleaned); // BigInt supports 0x, but for bin/oct we do custom
@@ -113,10 +113,17 @@ export function bitwiseNot(a: bigint, wordSize: WordSize): bigint {
 }
 
 export function shiftLeft(a: bigint, shift: bigint, wordSize: WordSize): bigint {
+  const width = getBitWidth(wordSize);
+  if (shift >= width || shift < 0n) return 0n;
   return truncateToWordSize(a << shift, wordSize);
 }
 
 export function shiftRight(a: bigint, shift: bigint, wordSize: WordSize, isSigned: boolean): bigint {
+  const width = getBitWidth(wordSize);
+  if (shift >= width || shift < 0n) {
+    const result = isSigned && shift >= 0n && toSigned(a, wordSize) < 0n ? -1n : 0n;
+    return truncateToWordSize(result, wordSize);
+  }
   if (isSigned) {
     const signedA = toSigned(a, wordSize);
     const result = signedA >> shift;
@@ -124,30 +131,4 @@ export function shiftRight(a: bigint, shift: bigint, wordSize: WordSize, isSigne
   } else {
     return truncateToWordSize(a >> shift, wordSize);
   }
-}
-
-export function rotateLeft(a: bigint, shift: bigint, wordSize: WordSize): bigint {
-  const width = getBitWidth(wordSize);
-  const actualShift = shift % width;
-  if (actualShift === 0n) return a;
-  
-  const mask = getMask(wordSize);
-  const unsignedA = a & mask;
-  
-  const left = (unsignedA << actualShift) & mask;
-  const right = unsignedA >> (width - actualShift);
-  return left | right;
-}
-
-export function rotateRight(a: bigint, shift: bigint, wordSize: WordSize): bigint {
-  const width = getBitWidth(wordSize);
-  const actualShift = shift % width;
-  if (actualShift === 0n) return a;
-  
-  const mask = getMask(wordSize);
-  const unsignedA = a & mask;
-  
-  const right = unsignedA >> actualShift;
-  const left = (unsignedA << (width - actualShift)) & mask;
-  return left | right;
 }

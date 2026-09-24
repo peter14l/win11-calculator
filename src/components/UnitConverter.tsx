@@ -1,121 +1,114 @@
-import React, { useState, useEffect } from "react";
+import type React from "react";
+import { useState } from "react";
+import { ArrowDownUp } from "lucide-react";
 import { CONVERTER_CATEGORIES, convertValue } from "../utils/converterData";
 
 interface UnitConverterProps {
   categoryId: string;
+  grouping: boolean;
 }
 
-export const UnitConverter: React.FC<UnitConverterProps> = ({ categoryId }) => {
+const strip = (s: string): string => s.replace(/,/g, "");
+
+const groupThousands = (s: string): string => {
+  const m = /^(-?)(\d+)((?:\.\d+)?)$/.exec(s);
+  if (!m) return s;
+  return m[1] + m[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + m[3];
+};
+
+export const UnitConverter: React.FC<UnitConverterProps> = ({ categoryId, grouping }) => {
   const category = CONVERTER_CATEGORIES.find((c) => c.id === categoryId);
+
+  const [fromUnit, setFromUnit] = useState(() => category?.units[0]?.id ?? "");
+  const [toUnit, setToUnit] = useState(() => category?.units[1]?.id ?? category?.units[0]?.id ?? "");
+  const [activeSide, setActiveSide] = useState<"from" | "to">("from");
+  const [activeRaw, setActiveRaw] = useState("1");
 
   if (!category) {
     return <div style={{ padding: 20 }}>Converter category not found.</div>;
   }
 
-  // Active units
-  const [fromUnit, setFromUnit] = useState(category.units[0].id);
-  const [toUnit, setToUnit] = useState(category.units[1]?.id || category.units[0].id);
-
-  // Buffer values
-  const [fromVal, setFromVal] = useState("1");
-  const [toVal, setToVal] = useState("1");
-  
-  // Track which input is active
-  const [activeSide, setActiveSide] = useState<"from" | "to">("from");
-
-  // Reset values when category changes
-  useEffect(() => {
-    const cat = CONVERTER_CATEGORIES.find((c) => c.id === categoryId);
-    if (cat) {
-      setFromUnit(cat.units[0].id);
-      setToUnit(cat.units[1]?.id || cat.units[0].id);
-      setFromVal("1");
-      setActiveSide("from");
-    }
-  }, [categoryId]);
-
-  // Handle calculations in real-time
-  useEffect(() => {
-    if (activeSide === "from") {
-      const parsed = parseFloat(fromVal) || 0;
-      const converted = convertValue(parsed, fromUnit, toUnit, categoryId);
-      setToVal(formatDisplay(converted));
-    } else {
-      const parsed = parseFloat(toVal) || 0;
-      const converted = convertValue(parsed, toUnit, fromUnit, categoryId);
-      setFromVal(formatDisplay(converted));
-    }
-  }, [fromVal, toVal, fromUnit, toUnit, activeSide, categoryId]);
-
   const formatDisplay = (num: number): string => {
-    if (isNaN(num)) return "0";
+    if (!isFinite(num)) return "0";
     if (num === 0) return "0";
-    
-    // Limits number of decimal places for display clarity
-    const str = num.toFixed(8);
-    const parsed = parseFloat(str);
-    
-    if (Math.abs(parsed) > 1e12 || (Math.abs(parsed) < 1e-6 && parsed !== 0)) {
-      return parsed.toExponential(4);
+    let txt: string;
+    if (Math.abs(num) >= 1e12 || Math.abs(num) < 1e-6) {
+      txt = num.toExponential(4).replace(/(\.\d*?)0+e/, "$1e").replace(/\.e/, "e");
+    } else {
+      txt = parseFloat(num.toFixed(8)).toString();
     }
-    return parsed.toString();
+    return grouping ? groupThousands(txt) : txt;
+  };
+
+  const activeNum = parseFloat(activeRaw) || 0;
+  const fromVal = activeSide === "from"
+    ? activeRaw
+    : formatDisplay(convertValue(activeNum, toUnit, fromUnit, categoryId));
+  const toVal = activeSide === "to"
+    ? activeRaw
+    : formatDisplay(convertValue(activeNum, fromUnit, toUnit, categoryId));
+
+  const activateSide = (side: "from" | "to") => {
+    if (activeSide === side) return;
+    const derived = side === "from" ? fromVal : toVal;
+    setActiveSide(side);
+    setActiveRaw(strip(derived));
+  };
+
+  const handleSwap = () => {
+    const other = activeSide === "from" ? toVal : fromVal;
+    setFromUnit(toUnit);
+    setToUnit(fromUnit);
+    setActiveRaw(strip(other));
   };
 
   const handleKeypadPress = (key: string) => {
-    const currentVal = activeSide === "from" ? fromVal : toVal;
-    const setVal = activeSide === "from" ? setFromVal : setToVal;
-
     if (key === "CE" || key === "C") {
-      setVal("0");
+      setActiveRaw("0");
     } else if (key === "⌫") {
-      if (currentVal.length > 1) {
-        setVal(currentVal.slice(0, -1));
-      } else {
-        setVal("0");
-      }
+      setActiveRaw((v) => (v.length > 1 ? v.slice(0, -1) : "0"));
     } else if (key === ".") {
-      if (!currentVal.includes(".")) {
-        setVal(currentVal + ".");
-      }
+      setActiveRaw((v) => (v.includes(".") ? v : v + "."));
     } else if (key === "+/-") {
-      const parsed = parseFloat(currentVal) || 0;
-      setVal((parsed * -1).toString());
+      setActiveRaw((v) => String((parseFloat(v) || 0) * -1));
     } else {
-      // Numerical keys
-      if (currentVal === "0") {
-        setVal(key);
-      } else {
-        if (currentVal.replace(/[^0-9]/g, "").length < 12) {
-          setVal(currentVal + key);
-        }
-      }
+      setActiveRaw((v) =>
+        v === "0"
+          ? key
+          : v.replace(/[^0-9]/g, "").length < 12
+            ? v + key
+            : v
+      );
     }
   };
 
-  const getComparisonText = () => {
-    if (!category.getComparison) return "";
-    const activeVal = activeSide === "from" ? parseFloat(fromVal) : parseFloat(toVal);
-    const activeUnit = activeSide === "from" ? fromUnit : toUnit;
-    
-    if (isNaN(activeVal) || activeVal === 0) return "";
-    return category.getComparison(activeVal, activeUnit);
-  };
+  const comparison = category.getComparison
+    ? category.getComparison(activeNum, activeSide === "from" ? fromUnit : toUnit) || ""
+    : "";
 
   return (
     <div style={styles.container}>
-      {/* Display values side-by-side or stacked */}
       <div style={styles.displaySection}>
-        {/* From Section */}
-        <div 
+        <div
           style={{
             ...styles.unitBox,
-            borderLeft: activeSide === "from" ? "4px solid var(--text-accent)" : "4px solid transparent"
+            borderLeft: activeSide === "from" ? "4px solid var(--text-accent)" : "4px solid transparent",
           }}
-          onClick={() => setActiveSide("from")}
+          onClick={() => activateSide("from")}
         >
-          <div style={styles.valText}>{fromVal}</div>
-          <select 
-            style={styles.dropdown} 
+          <input
+            style={styles.valInput}
+            inputMode="decimal"
+            value={fromVal}
+            readOnly={activeSide !== "from"}
+            onFocus={() => activateSide("from")}
+            onChange={(e) => {
+              setActiveSide("from");
+              setActiveRaw(e.target.value);
+            }}
+          />
+          <select
+            style={styles.dropdown}
             value={fromUnit}
             onChange={(e) => setFromUnit(e.target.value)}
           >
@@ -127,17 +120,30 @@ export const UnitConverter: React.FC<UnitConverterProps> = ({ categoryId }) => {
           </select>
         </div>
 
-        {/* To Section */}
-        <div 
+        <button className="icon-btn" style={styles.swapBtn} onClick={handleSwap} aria-label="Swap units">
+          <ArrowDownUp size={16} />
+        </button>
+
+        <div
           style={{
             ...styles.unitBox,
-            borderLeft: activeSide === "to" ? "4px solid var(--text-accent)" : "4px solid transparent"
+            borderLeft: activeSide === "to" ? "4px solid var(--text-accent)" : "4px solid transparent",
           }}
-          onClick={() => setActiveSide("to")}
+          onClick={() => activateSide("to")}
         >
-          <div style={styles.valText}>{toVal}</div>
-          <select 
-            style={styles.dropdown} 
+          <input
+            style={styles.valInput}
+            inputMode="decimal"
+            value={toVal}
+            readOnly={activeSide !== "to"}
+            onFocus={() => activateSide("to")}
+            onChange={(e) => {
+              setActiveSide("to");
+              setActiveRaw(e.target.value);
+            }}
+          />
+          <select
+            style={styles.dropdown}
             value={toUnit}
             onChange={(e) => setToUnit(e.target.value)}
           >
@@ -150,16 +156,13 @@ export const UnitConverter: React.FC<UnitConverterProps> = ({ categoryId }) => {
         </div>
       </div>
 
-      {/* Comparisons Section */}
       <div style={styles.comparisonArea}>
-        {getComparisonText() && (
-          <div style={styles.comparisonCard}>
-            {getComparisonText()}
-          </div>
+        {comparison && <div style={styles.comparisonCard}>{comparison}</div>}
+        {categoryId === "currency" && (
+          <div style={styles.rateNote}>Rates are fixed reference values — not live market data.</div>
         )}
       </div>
 
-      {/* Custom numerical keypad */}
       <div style={styles.keypadContainer}>
         <div style={styles.keypad}>
           <button className="fluent-btn op-key" onClick={() => handleKeypadPress("7")}>7</button>
@@ -180,7 +183,7 @@ export const UnitConverter: React.FC<UnitConverterProps> = ({ categoryId }) => {
           <button className="fluent-btn op-key" onClick={() => handleKeypadPress("+/-")}>+/-</button>
           <button className="fluent-btn op-key" onClick={() => handleKeypadPress("0")}>0</button>
           <button className="fluent-btn op-key" onClick={() => handleKeypadPress(".")}>.</button>
-          <button className="fluent-btn op-key" style={{ opacity: 0.2, pointerEvents: "none" }}></button>
+          <button className="fluent-btn accent-key" onClick={handleSwap}>⇅</button>
         </div>
       </div>
     </div>
@@ -199,7 +202,7 @@ const styles: Record<string, React.CSSProperties> = {
   displaySection: {
     display: "flex",
     flexDirection: "column",
-    gap: "16px",
+    gap: "8px",
     marginBottom: "16px",
   },
   unitBox: {
@@ -207,14 +210,22 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "var(--bg-btn-op)",
     borderRadius: "6px",
     border: "1px solid var(--border-subtle)",
-    cursor: "pointer",
   },
-  valText: {
-    fontSize: "32px",
+  valInput: {
+    fontSize: "26px",
     fontWeight: "bold",
     marginBottom: "4px",
-    wordBreak: "break-all",
+    width: "100%",
+    background: "transparent",
+    border: "none",
     color: "var(--text-main)",
+    outline: "none",
+    wordBreak: "break-all",
+    fontFamily: "inherit",
+  },
+  swapBtn: {
+    alignSelf: "flex-start",
+    marginLeft: "8px",
   },
   dropdown: {
     width: "100%",
@@ -233,7 +244,9 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     minHeight: "40px",
     display: "flex",
-    alignItems: "center",
+    flexDirection: "column",
+    gap: "8px",
+    justifyContent: "center",
   },
   comparisonCard: {
     width: "100%",
@@ -243,6 +256,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     color: "var(--text-sec)",
     borderRadius: "0 4px 4px 0",
+  },
+  rateNote: {
+    fontSize: "12px",
+    color: "var(--text-sec)",
   },
   keypadContainer: {
     flex: 1.5,

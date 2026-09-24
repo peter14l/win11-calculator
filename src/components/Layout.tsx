@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import type React from "react";
+import { useState, useEffect } from "react";
 import { 
   Menu, 
   Settings, 
@@ -21,6 +22,7 @@ import {
   Circle, 
   Layers
 } from "lucide-react";
+import type { ThemePref } from "../types";
 
 export type CalculatorMode =
   | "standard"
@@ -45,8 +47,8 @@ export type CalculatorMode =
 interface LayoutProps {
   currentMode: CalculatorMode;
   setMode: (mode: CalculatorMode) => void;
-  theme: "light" | "dark";
-  setTheme: (theme: "light" | "dark") => void;
+  theme: ThemePref;
+  setTheme?: (theme: ThemePref) => void;
   children: React.ReactNode;
   showHistoryToggle?: boolean;
   onToggleHistory?: () => void;
@@ -70,10 +72,31 @@ export const Layout: React.FC<LayoutProps> = ({
   isHistoryOpen = false,
 }) => {
   const [isNavOpen, setIsNavOpen] = useState(false);
+  const [systemTheme, setSystemTheme] = useState<"light" | "dark">(() =>
+    window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
+  );
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = (e: MediaQueryListEvent) => setSystemTheme(e.matches ? "light" : "dark");
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const effectiveTheme = theme === "system" ? systemTheme : theme;
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", effectiveTheme);
+  }, [effectiveTheme]);
+
+  useEffect(() => {
+    if (!isNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isNavOpen]);
 
   const navItems: NavItem[] = [
     { id: "standard", name: "Standard", icon: <Calculator size={16} />, category: "calculator" },
@@ -113,7 +136,7 @@ export const Layout: React.FC<LayoutProps> = ({
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <button 
-            style={styles.iconButton} 
+            className="icon-btn" 
             onClick={() => setIsNavOpen(!isNavOpen)}
             aria-label="Navigation menu"
           >
@@ -124,9 +147,9 @@ export const Layout: React.FC<LayoutProps> = ({
         
         {showHistoryToggle && (
           <button 
+            className="icon-btn"
             style={{
-              ...styles.iconButton,
-              backgroundColor: isHistoryOpen ? "var(--bg-btn-active)" : "transparent"
+              backgroundColor: isHistoryOpen ? "var(--bg-btn-active)" : undefined
             }} 
             onClick={onToggleHistory}
             aria-label="History panel"
@@ -153,9 +176,9 @@ export const Layout: React.FC<LayoutProps> = ({
               .map((item) => (
                 <button
                   key={item.id}
+                  className="sidebar-item"
                   style={{
-                    ...styles.sidebarItem,
-                    backgroundColor: currentMode === item.id ? "var(--bg-btn-hover)" : "transparent",
+                    backgroundColor: currentMode === item.id ? "var(--bg-btn-hover)" : undefined,
                     borderLeft: currentMode === item.id ? "3px solid var(--text-accent)" : "3px solid transparent",
                   }}
                   onClick={() => handleItemClick(item.id)}
@@ -172,9 +195,9 @@ export const Layout: React.FC<LayoutProps> = ({
               .map((item) => (
                 <button
                   key={item.id}
+                  className="sidebar-item"
                   style={{
-                    ...styles.sidebarItem,
-                    backgroundColor: currentMode === item.id ? "var(--bg-btn-hover)" : "transparent",
+                    backgroundColor: currentMode === item.id ? "var(--bg-btn-hover)" : undefined,
                     borderLeft: currentMode === item.id ? "3px solid var(--text-accent)" : "3px solid transparent",
                   }}
                   onClick={() => handleItemClick(item.id)}
@@ -187,9 +210,9 @@ export const Layout: React.FC<LayoutProps> = ({
 
           <div style={styles.sidebarFooter}>
             <button
+              className="sidebar-item"
               style={{
-                ...styles.sidebarItem,
-                backgroundColor: currentMode === "settings" ? "var(--bg-btn-hover)" : "transparent",
+                backgroundColor: currentMode === "settings" ? "var(--bg-btn-hover)" : undefined,
                 borderLeft: currentMode === "settings" ? "3px solid var(--text-accent)" : "3px solid transparent",
               }}
               onClick={() => handleItemClick("settings")}

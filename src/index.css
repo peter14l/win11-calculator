@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@300;400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
-
 :root {
   /* Default: Dark Theme (Windows 11 typical calculator dark) */
   --bg-app: #1c1c1c;
@@ -69,7 +67,7 @@
 }
 
 body {
-  font-family: 'Segoe UI', 'Outfit', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   background-color: var(--bg-app);
   color: var(--text-main);
   overflow: hidden;
@@ -175,4 +173,174 @@ body {
 .fluent-btn.disabled {
   opacity: 0.3;
   pointer-events: none;
+}
+
+/* Shared small buttons (memory/config/history controls) */
+.chip-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.1s ease, color 0.1s ease;
+  user-select: none;
+}
+
+.chip-btn:hover:not(:disabled) {
+  background-color: var(--bg-btn-hover);
+}
+
+.chip-btn:active:not(:disabled) {
+  background-color: var(--bg-btn-active);
+}
+
+.chip-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chip-btn.danger:hover:not(:disabled) {
+  background-color: rgba(224, 49, 49, 0.18);
+  color: #ff5f52;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.icon-btn:hover {
+  background-color: var(--bg-btn-hover);
+}
+
+.seg-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.seg-btn:hover {
+  background-color: var(--bg-btn-hover);
+}
+
+/* Sidebar navigation */
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  transition: background-color 0.1s ease;
+  gap: 12px;
+}
+
+.sidebar-item:hover {
+  background-color: var(--bg-btn-hover);
+}
+
+/* Sidebar history/memory controls */
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-btn:hover {
+  color: var(--text-accent);
+}
+
+.history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  width: 100%;
+  text-align: right;
+  transition: background-color 0.1s ease;
+}
+
+.history-item:hover {
+  background-color: var(--bg-btn-hover);
+}
+
+.memory-action {
+  background: transparent;
+  border: none;
+  color: var(--text-sec);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.memory-action:hover {
+  background-color: var(--bg-btn-hover);
+  color: var(--text-main);
+}
+
+/* Focus visibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 1px;
+}
+
+/* Touch targets on coarse pointers */
+@media (pointer: coarse) {
+  .fluent-btn {
+    min-height: 44px;
+  }
+  .chip-btn,
+  .seg-btn {
+    min-height: 36px;
+  }
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }

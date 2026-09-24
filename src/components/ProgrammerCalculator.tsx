@@ -1,19 +1,39 @@
-import React, { useState, useEffect } from "react";
-import { 
-  formatString, 
-  parseString, 
-  truncateToWordSize, 
-  getBitWidth, 
-  bitwiseAnd, 
-  bitwiseOr, 
-  bitwiseXor, 
-  bitwiseNot, 
-  shiftLeft, 
-  shiftRight 
+import type React from "react";
+import { useState } from "react";
+import {
+  formatString,
+  parseString,
+  truncateToWordSize,
+  getBitWidth,
+  bitwiseAnd,
+  bitwiseOr,
+  bitwiseXor,
+  bitwiseNot,
+  shiftLeft,
+  shiftRight,
 } from "../utils/programmerMath";
 import type { WordSize } from "../utils/programmerMath";
+import { useCalculatorKeyboard } from "../hooks/useCalculatorKeyboard";
 
-export const ProgrammerCalculator: React.FC = () => {
+interface ProgrammerProps {
+  grouping: boolean;
+}
+
+const groupThousands = (s: string): string => {
+  const m = /^-?\d+$/.exec(s);
+  if (!m) return s;
+  const neg = s.startsWith("-");
+  const digits = neg ? s.slice(1) : s;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return (neg ? "-" : "") + grouped;
+};
+
+const toDisplay = (v: bigint, base: number, wordSize: WordSize, isSigned: boolean, grouping: boolean): string => {
+  const raw = formatString(v, base, wordSize, base === 10 && isSigned);
+  return base === 10 && grouping ? groupThousands(raw) : raw;
+};
+
+export const ProgrammerCalculator: React.FC<ProgrammerProps> = ({ grouping }) => {
   const [value, setValue] = useState<bigint>(0n);
   const [activeBase, setActiveBase] = useState<number>(10);
   const [wordSize, setWordSize] = useState<WordSize>("QWORD");
@@ -22,78 +42,63 @@ export const ProgrammerCalculator: React.FC = () => {
   const [activeOp, setActiveOp] = useState<string | null>(null);
   const [shouldReset, setShouldReset] = useState(false);
   const [isSigned, setIsSigned] = useState(true);
-  const [showBits, setShowBits] = useState(false); // Toggle to show the 64-bit visualizer
+  const [showBits, setShowBits] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Generate input buffer
-  const [inputBuffer, setInputBuffer] = useState("0");
-
-  useEffect(() => {
-    // Keep inputBuffer synchronized with value when value changes externally
-    setInputBuffer(formatString(value, activeBase, wordSize, isSigned).replace(/\s+/g, ""));
-  }, [value, activeBase, wordSize, isSigned]);
+  const isKeyActive = (char: string): boolean => {
+    const c = char.toUpperCase();
+    const val = /[0-9]/.test(c)
+      ? parseInt(c, 10)
+      : /[A-F]/.test(c)
+        ? 10 + c.charCodeAt(0) - 65
+        : NaN;
+    return Number.isNaN(val) ? true : val < activeBase;
+  };
 
   const handleNumber = (char: string) => {
-    let cleanChar = char.toUpperCase();
+    const c = char.toUpperCase();
+    if (!isKeyActive(c)) return;
+    setError(null);
     if (shouldReset) {
-      setInputBuffer(cleanChar);
-      setValue(parseString(cleanChar, activeBase, wordSize));
+      setValue(parseString(c, activeBase, wordSize));
       setShouldReset(false);
       return;
     }
-
-    let nextBuffer = inputBuffer === "0" ? cleanChar : inputBuffer + cleanChar;
-    // Basic verification: can parse
-    const parsed = parseString(nextBuffer, activeBase, wordSize);
-    setValue(parsed);
-    setInputBuffer(nextBuffer);
+    const display = formatString(value, activeBase, wordSize, false).replace(/\s+/g, "");
+    setValue(parseString(display + c, activeBase, wordSize));
   };
 
   const handleBackspace = () => {
+    setError(null);
     if (shouldReset) return;
-    if (inputBuffer.length > 1) {
-      const next = inputBuffer.slice(0, -1);
-      setInputBuffer(next);
-      setValue(parseString(next, activeBase, wordSize));
-    } else {
-      setInputBuffer("0");
-      setValue(0n);
-    }
+    const display = formatString(value, activeBase, wordSize, activeBase === 10 && isSigned).replace(/\s+/g, "");
+    const next = display.slice(0, -1);
+    setValue(parseString(next || "0", activeBase, wordSize));
   };
 
   const handleClear = () => {
     setValue(0n);
-    setInputBuffer("0");
     setExpression("");
     setPrevVal(null);
     setActiveOp(null);
     setShouldReset(false);
+    setError(null);
   };
 
   const handleClearEntry = () => {
     setValue(0n);
-    setInputBuffer("0");
+    setError(null);
   };
 
-  const handleOperator = (op: string) => {
-    if (activeOp && prevVal !== null && !shouldReset) {
-      const result = calculate(prevVal, value, activeOp);
-      setPrevVal(result);
-      setValue(result);
-      setExpression(`${formatString(result, activeBase, wordSize, isSigned)} ${op}`);
-    } else {
-      setPrevVal(value);
-      setExpression(`${formatString(value, activeBase, wordSize, isSigned)} ${op}`);
-    }
-    setActiveOp(op);
-    setShouldReset(true);
-  };
-
-  const calculate = (a: bigint, b: bigint, op: string): bigint => {
+  const calculate = (a: bigint, b: bigint, op: string): bigint | null => {
     switch (op) {
       case "+": return truncateToWordSize(a + b, wordSize);
       case "-": return truncateToWordSize(a - b, wordSize);
       case "×": return truncateToWordSize(a * b, wordSize);
-      case "÷": return b === 0n ? 0n : truncateToWordSize(a / b, wordSize);
+      case "÷":
+      case "mod":
+        if (b === 0n) return null;
+        return truncateToWordSize(a / b, wordSize);
       case "AND": return bitwiseAnd(a, b, wordSize);
       case "OR": return bitwiseOr(a, b, wordSize);
       case "XOR": return bitwiseXor(a, b, wordSize);
@@ -103,32 +108,55 @@ export const ProgrammerCalculator: React.FC = () => {
     }
   };
 
+  const handleOperator = (op: string) => {
+    if (activeOp && prevVal !== null && !shouldReset) {
+      const result = calculate(prevVal, value, activeOp);
+      if (result === null) {
+        setError("Cannot divide by zero");
+        setExpression("");
+        setPrevVal(null);
+        setActiveOp(null);
+        setShouldReset(true);
+        return;
+      }
+      setPrevVal(result);
+      setValue(result);
+      setExpression(`${toDisplay(result, activeBase, wordSize, isSigned, grouping)} ${op}`);
+    } else {
+      setPrevVal(value);
+      setExpression(`${toDisplay(value, activeBase, wordSize, isSigned, grouping)} ${op}`);
+    }
+    setActiveOp(op);
+    setShouldReset(true);
+  };
+
   const handleEquals = () => {
     if (activeOp === null || prevVal === null || shouldReset) return;
     const result = calculate(prevVal, value, activeOp);
-    
-    setValue(result);
     setExpression("");
     setPrevVal(null);
     setActiveOp(null);
     setShouldReset(true);
+    setValue(result === null ? 0n : result);
+    setError(result === null ? "Cannot divide by zero" : null);
   };
 
   const handleNegate = () => {
-    const negated = truncateToWordSize(-value, wordSize);
-    setValue(negated);
+    setError(null);
+    setValue(truncateToWordSize(-value, wordSize));
   };
 
   const handleNot = () => {
-    const negated = bitwiseNot(value, wordSize);
-    setValue(negated);
+    setError(null);
+    setValue(bitwiseNot(value, wordSize));
     setShouldReset(true);
   };
 
+  const handleMod = () => handleOperator("mod");
+
   const toggleBit = (bitIndex: number) => {
-    const bitVal = 1n << BigInt(bitIndex);
-    const nextVal = value ^ bitVal;
-    setValue(truncateToWordSize(nextVal, wordSize));
+    setError(null);
+    setValue(truncateToWordSize(value ^ (1n << BigInt(bitIndex)), wordSize));
   };
 
   const changeWordSize = () => {
@@ -139,26 +167,26 @@ export const ProgrammerCalculator: React.FC = () => {
     setValue(truncateToWordSize(value, nextSize));
   };
 
-  // Check if keys are active in the selected base
-  const isKeyActive = (char: string): boolean => {
-    const c = char.toUpperCase();
-    if (/[A-F]/.test(c)) return activeBase === 16;
-    if (/[8-9]/.test(c)) return activeBase === 16 || activeBase === 10;
-    if (/[2-7]/.test(c)) return activeBase === 16 || activeBase === 10 || activeBase === 8;
-    if (/[0-1]/.test(c)) return true;
-    return true;
-  };
+  useCalculatorKeyboard(true, {
+    digit: (d) => handleNumber(d),
+    decimal: () => {},
+    op: (op) => handleOperator(op),
+    equals: handleEquals,
+    backspace: handleBackspace,
+    clear: handleClear,
+    clearEntry: handleClearEntry,
+    percent: handleMod,
+    letter: (c) => handleNumber(c),
+  });
 
-  // Render bit representations
   const renderBitGrid = () => {
     const bitWidth = Number(getBitWidth(wordSize));
     const bits: React.ReactNode[] = [];
-    
     for (let i = bitWidth - 1; i >= 0; i--) {
       const bitIsSet = (value & (1n << BigInt(i))) !== 0n;
       bits.push(
-        <div 
-          key={i} 
+        <div
+          key={i}
           style={{
             ...styles.bitCell,
             backgroundColor: bitIsSet ? "var(--text-accent)" : "rgba(255,255,255,0.05)",
@@ -175,32 +203,36 @@ export const ProgrammerCalculator: React.FC = () => {
     return bits;
   };
 
+  const hexKey = (c: string) =>
+    `fluent-btn op-key ${isKeyActive(c) ? "" : "disabled"}`;
+  const numKey = (c: string) =>
+    `fluent-btn num-key ${isKeyActive(c) ? "" : "disabled"}`;
+
   return (
     <div style={styles.container}>
-      {/* Side-by-Side Bases Panel */}
       <div style={styles.basesPanel}>
-        <div 
+        <div
           style={{ ...styles.baseRow, color: activeBase === 16 ? "var(--text-accent)" : "var(--text-main)" }}
           onClick={() => setActiveBase(16)}
         >
           <span style={styles.baseLabel}>HEX</span>
           <span style={styles.baseVal}>{formatString(value, 16, wordSize, false)}</span>
         </div>
-        <div 
+        <div
           style={{ ...styles.baseRow, color: activeBase === 10 ? "var(--text-accent)" : "var(--text-main)" }}
           onClick={() => setActiveBase(10)}
         >
           <span style={styles.baseLabel}>DEC</span>
-          <span style={styles.baseVal}>{formatString(value, 10, wordSize, isSigned)}</span>
+          <span style={styles.baseVal}>{toDisplay(value, 10, wordSize, isSigned, grouping)}</span>
         </div>
-        <div 
+        <div
           style={{ ...styles.baseRow, color: activeBase === 8 ? "var(--text-accent)" : "var(--text-main)" }}
           onClick={() => setActiveBase(8)}
         >
           <span style={styles.baseLabel}>OCT</span>
           <span style={styles.baseVal}>{formatString(value, 8, wordSize, false)}</span>
         </div>
-        <div 
+        <div
           style={{ ...styles.baseRow, color: activeBase === 2 ? "var(--text-accent)" : "var(--text-main)" }}
           onClick={() => setActiveBase(2)}
         >
@@ -209,87 +241,70 @@ export const ProgrammerCalculator: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Expression / Display */}
       <div style={styles.displayArea}>
         <div style={styles.expression}>{expression}</div>
         <div style={styles.mainVal}>
-          {formatString(value, activeBase, wordSize, activeBase === 10 ? isSigned : false)}
+          {error ?? toDisplay(value, activeBase, wordSize, isSigned, grouping)}
         </div>
       </div>
 
-      {/* Control Bar (Word size & Bit view toggler) */}
       <div style={styles.controlBar}>
-        <button style={styles.controlBtn} onClick={changeWordSize}>
+        <button className="chip-btn" style={{ borderLeft: "2px solid var(--text-accent)" }} onClick={changeWordSize}>
           {wordSize}
         </button>
-        <button 
-          style={{
-            ...styles.controlBtn,
-            backgroundColor: showBits ? "var(--bg-btn-active)" : "transparent"
-          }}
+        <button
+          className="chip-btn"
+          style={{ backgroundColor: showBits ? "var(--bg-btn-active)" : undefined }}
           onClick={() => setShowBits(!showBits)}
         >
           Bit Visualizer
         </button>
         {activeBase === 10 && (
-          <button style={styles.controlBtn} onClick={() => setIsSigned(!isSigned)}>
+          <button className="chip-btn" onClick={() => setIsSigned(!isSigned)}>
             {isSigned ? "Signed" : "Unsigned"}
           </button>
         )}
       </div>
 
-      {/* Bit Visualizer Grid */}
-      {showBits && (
-        <div style={styles.bitVisualizer}>
-          {renderBitGrid()}
-        </div>
-      )}
+      {showBits && <div style={styles.bitVisualizer}>{renderBitGrid()}</div>}
 
-      {/* Keypad Grid (6 columns, 6 rows) */}
       <div style={{ ...styles.keypad, flex: showBits ? 0.7 : 1.2 }}>
-        {/* Row 1 */}
-        <button className={`fluent-btn op-key ${isKeyActive("A") ? "" : "disabled"}`} onClick={() => handleNumber("A")}>A</button>
+        <button className={hexKey("A")} onClick={() => handleNumber("A")}>A</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("LSH")}>Lsh</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("RSH")}>Rsh</button>
         <button className="fluent-btn op-key" onClick={handleClearEntry}>CE</button>
         <button className="fluent-btn op-key" onClick={handleClear}>C</button>
         <button className="fluent-btn op-key" onClick={handleBackspace}>⌫</button>
 
-        {/* Row 2 */}
-        <button className={`fluent-btn op-key ${isKeyActive("B") ? "" : "disabled"}`} onClick={() => handleNumber("B")}>B</button>
+        <button className={hexKey("B")} onClick={() => handleNumber("B")}>B</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("AND")}>AND</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("OR")}>OR</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("XOR")}>XOR</button>
         <button className="fluent-btn op-key" onClick={handleNot}>NOT</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("÷")}>÷</button>
 
-        {/* Row 3 */}
-        <button className={`fluent-btn op-key ${isKeyActive("C") ? "" : "disabled"}`} onClick={() => handleNumber("C")}>C</button>
-        <button className={`fluent-btn num-key ${isKeyActive("7") ? "" : "disabled"}`} onClick={() => handleNumber("7")}>7</button>
-        <button className={`fluent-btn num-key ${isKeyActive("8") ? "" : "disabled"}`} onClick={() => handleNumber("8")}>8</button>
-        <button className={`fluent-btn num-key ${isKeyActive("9") ? "" : "disabled"}`} onClick={() => handleNumber("9")}>9</button>
+        <button className={hexKey("C")} onClick={() => handleNumber("C")}>C</button>
+        <button className={numKey("7")} onClick={() => handleNumber("7")}>7</button>
+        <button className={numKey("8")} onClick={() => handleNumber("8")}>8</button>
+        <button className={numKey("9")} onClick={() => handleNumber("9")}>9</button>
         <button className="fluent-btn op-key" onClick={handleNegate}>+/-</button>
         <button className="fluent-btn op-key" onClick={() => handleOperator("×")}>×</button>
 
-        {/* Row 4 */}
-        <button className={`fluent-btn op-key ${isKeyActive("D") ? "" : "disabled"}`} onClick={() => handleNumber("D")}>D</button>
-        <button className={`fluent-btn num-key ${isKeyActive("4") ? "" : "disabled"}`} onClick={() => handleNumber("4")}>4</button>
-        <button className={`fluent-btn num-key ${isKeyActive("5") ? "" : "disabled"}`} onClick={() => handleNumber("5")}>5</button>
-        <button className={`fluent-btn num-key ${isKeyActive("6") ? "" : "disabled"}`} onClick={() => handleNumber("6")}>6</button>
+        <button className={hexKey("D")} onClick={() => handleNumber("D")}>D</button>
+        <button className={numKey("4")} onClick={() => handleNumber("4")}>4</button>
+        <button className={numKey("5")} onClick={() => handleNumber("5")}>5</button>
+        <button className={numKey("6")} onClick={() => handleNumber("6")}>6</button>
         <button className="fluent-btn op-key" style={{ gridColumn: "span 2" }} onClick={() => handleOperator("-")}>-</button>
 
-        {/* Row 5 */}
-        <button className={`fluent-btn op-key ${isKeyActive("E") ? "" : "disabled"}`} onClick={() => handleNumber("E")}>E</button>
-        <button className={`fluent-btn num-key ${isKeyActive("1") ? "" : "disabled"}`} onClick={() => handleNumber("1")}>1</button>
-        <button className={`fluent-btn num-key ${isKeyActive("2") ? "" : "disabled"}`} onClick={() => handleNumber("2")}>2</button>
-        <button className={`fluent-btn num-key ${isKeyActive("3") ? "" : "disabled"}`} onClick={() => handleNumber("3")}>3</button>
+        <button className={hexKey("E")} onClick={() => handleNumber("E")}>E</button>
+        <button className={numKey("1")} onClick={() => handleNumber("1")}>1</button>
+        <button className={numKey("2")} onClick={() => handleNumber("2")}>2</button>
+        <button className={numKey("3")} onClick={() => handleNumber("3")}>3</button>
         <button className="fluent-btn op-key" style={{ gridColumn: "span 2" }} onClick={() => handleOperator("+")}>+</button>
 
-        {/* Row 6 */}
-        <button className={`fluent-btn op-key ${isKeyActive("F") ? "" : "disabled"}`} onClick={() => handleNumber("F")}>F</button>
-        <button className="fluent-btn op-key" style={{ gridColumn: "span 2" }} onClick={() => handleNumber("(")}>(</button>
-        <button className="fluent-btn op-key" style={{ gridColumn: "span 2" }} onClick={() => handleNumber(")")}>)</button>
-        <button className="fluent-btn num-key" onClick={() => handleNumber("0")}>0</button>
+        <button className={hexKey("F")} onClick={() => handleNumber("F")}>F</button>
+        <button className="fluent-btn op-key" onClick={handleMod}>mod</button>
+        <button className="fluent-btn num-key" style={{ gridColumn: "span 2" }} onClick={() => handleNumber("0")}>0</button>
         <button className="fluent-btn accent-key" style={{ gridColumn: "span 2" }} onClick={handleEquals}>=</button>
       </div>
     </div>
@@ -355,19 +370,6 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: "8px",
     margin: "4px 0",
-  },
-  controlBtn: {
-    background: "transparent",
-    border: "none",
-    color: "var(--text-main)",
-    fontSize: "12px",
-    fontWeight: 600,
-    height: "28px",
-    padding: "0 12px",
-    borderRadius: "4px",
-    cursor: "pointer",
-    transition: "background-color 0.1s ease",
-    borderLeft: "2px solid var(--text-accent)",
   },
   bitVisualizer: {
     display: "grid",

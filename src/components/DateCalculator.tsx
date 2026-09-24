@@ -1,134 +1,116 @@
-import React, { useState, useEffect } from "react";
+import type React from "react";
+import { useState } from "react";
 
 type DateCalcMode = "difference" | "add_subtract";
 
+const toLocalDateStr = (d: Date): string => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+const todayStr = (): string => toLocalDateStr(new Date());
+
+const parseLocal = (s: string): Date | null => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (
+    d.getFullYear() !== Number(m[1]) ||
+    d.getMonth() !== Number(m[2]) - 1 ||
+    d.getDate() !== Number(m[3])
+  ) {
+    return null;
+  }
+  return d;
+};
+
+const utcDay = (d: Date): number =>
+  Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+
+const formatDate = (d: Date): string =>
+  d.toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
 export const DateCalculator: React.FC = () => {
   const [subMode, setSubMode] = useState<DateCalcMode>("difference");
-  
-  // State for Date Difference
-  const [fromDate, setFromDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [toDate, setToDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [dateDiffResult, setDateDiffResult] = useState<string>("");
-
-  // State for Add/Subtract Days
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [fromDate, setFromDate] = useState<string>(todayStr);
+  const [toDate, setToDate] = useState<string>(todayStr);
+  const [startDate, setStartDate] = useState<string>(todayStr);
   const [operation, setOperation] = useState<"add" | "subtract">("add");
   const [years, setYears] = useState<number>(0);
   const [months, setMonths] = useState<number>(0);
   const [days, setDays] = useState<number>(0);
-  const [dateAddResult, setDateAddResult] = useState<string>("");
 
-  useEffect(() => {
-    calculateDifference();
-  }, [fromDate, toDate]);
+  const diffResult = (() => {
+    const d1 = parseLocal(fromDate);
+    const d2 = parseLocal(toDate);
+    if (!d1 || !d2) return "Invalid date selection";
 
-  useEffect(() => {
-    calculateAddSubtract();
-  }, [startDate, operation, years, months, days]);
-
-  const calculateDifference = () => {
-    const d1 = new Date(fromDate);
-    const d2 = new Date(toDate);
-    
-    if (isNaN(d1.getTime()) || !isFinite(d1.getTime()) || isNaN(d2.getTime()) || !isFinite(d2.getTime())) {
-      setDateDiffResult("Invalid date selection");
-      return;
+    let a = d1;
+    let b = d2;
+    let swapped = false;
+    if (utcDay(a) > utcDay(b)) {
+      [a, b] = [b, a];
+      swapped = true;
     }
 
-    // Swap if d1 > d2
-    let start = d1;
-    let end = d2;
-    let isSwapped = false;
-    if (d1 > d2) {
-      start = d2;
-      end = d1;
-      isSwapped = true;
-    }
-
-    const totalDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    
-    // Calculate Years, Months, Days
-    let startYear = start.getFullYear();
-    let startMonth = start.getMonth();
-    let startDay = start.getDate();
-
-    let endYear = end.getFullYear();
-    let endMonth = end.getMonth();
-    let endDay = end.getDate();
-
-    let diffYears = endYear - startYear;
-    let diffMonths = endMonth - startMonth;
-    let diffDays = endDay - startDay;
-
+    const totalDays = Math.round((utcDay(b) - utcDay(a)) / 86400000);
+    let diffYears = b.getFullYear() - a.getFullYear();
+    let diffMonths = b.getMonth() - a.getMonth();
+    let diffDays = b.getDate() - a.getDate();
     if (diffDays < 0) {
-      // Borrow days from previous month
-      const prevMonth = new Date(endYear, endMonth, 0);
-      diffDays += prevMonth.getDate();
+      diffDays += new Date(b.getFullYear(), b.getMonth(), 0).getDate();
       diffMonths--;
     }
-
     if (diffMonths < 0) {
       diffMonths += 12;
       diffYears--;
     }
 
-    const yearStr = diffYears > 0 ? `${diffYears} year${diffYears !== 1 ? "s" : ""}` : "";
-    const monthStr = diffMonths > 0 ? `${diffMonths} month${diffMonths !== 1 ? "s" : ""}` : "";
-    const dayStr = diffDays > 0 ? `${diffDays} day${diffDays !== 1 ? "s" : ""}` : "";
+    const part = (n: number, unit: string) => (n > 0 ? `${n} ${unit}${n !== 1 ? "s" : ""}` : "");
+    const parts = [part(diffYears, "year"), part(diffMonths, "month"), part(diffDays, "day")].filter(Boolean);
+    const main = parts.join(", ") || "Same date";
+    return swapped
+      ? `${main} (counted backwards)\nTotal days: ${totalDays}`
+      : `${main}\nTotal days: ${totalDays}`;
+  })();
 
-    const parts = [yearStr, monthStr, dayStr].filter(p => p !== "");
-    const mainDiff = parts.join(", ") || "Same date";
-    const totalDiffStr = totalDays > 0 ? `Total days: ${totalDays}` : "";
+  const addResult = (() => {
+    const base = parseLocal(startDate);
+    if (!base) return "Invalid date";
+    const f = operation === "add" ? 1 : -1;
 
-    setDateDiffResult(
-      isSwapped 
-        ? `${mainDiff} (counted backwards) \n ${totalDiffStr}` 
-        : `${mainDiff} \n ${totalDiffStr}`
-    );
-  };
-
-  const calculateAddSubtract = () => {
-    const start = new Date(startDate);
-    if (isNaN(start.getTime())) {
-      setDateAddResult("Invalid date");
-      return;
-    }
-
-    const factor = operation === "add" ? 1 : -1;
-    
-    const resultDate = new Date(start);
-    resultDate.setFullYear(start.getFullYear() + (years * factor));
-    resultDate.setMonth(start.getMonth() + (months * factor));
-    resultDate.setDate(start.getDate() + (days * factor));
-
-    const options: Intl.DateTimeFormatOptions = { 
-      weekday: "long", 
-      year: "numeric", 
-      month: "long", 
-      day: "numeric" 
-    };
-    setDateAddResult(resultDate.toLocaleDateString(undefined, options));
-  };
+    const yearTarget = base.getFullYear() + years * f;
+    const monthTarget = base.getMonth() + months * f;
+    const norm = new Date(yearTarget, monthTarget, 1);
+    const dim = new Date(norm.getFullYear(), norm.getMonth() + 1, 0).getDate();
+    const result = new Date(norm.getFullYear(), norm.getMonth(), Math.min(base.getDate(), dim) + days * f);
+    if (Number.isNaN(result.getTime())) return "Invalid date";
+    return formatDate(result);
+  })();
 
   return (
     <div style={styles.container}>
-      {/* Date sub-mode selection */}
       <div style={styles.tabContainer}>
-        <button 
+        <button
           style={{
             ...styles.tabBtn,
             borderBottom: subMode === "difference" ? "3px solid var(--text-accent)" : "none",
-            fontWeight: subMode === "difference" ? 600 : 400
+            fontWeight: subMode === "difference" ? 600 : 400,
           }}
           onClick={() => setSubMode("difference")}
         >
           Difference between dates
         </button>
-        <button 
+        <button
           style={{
             ...styles.tabBtn,
             borderBottom: subMode === "add_subtract" ? "3px solid var(--text-accent)" : "none",
-            fontWeight: subMode === "add_subtract" ? 600 : 400
+            fontWeight: subMode === "add_subtract" ? 600 : 400,
           }}
           onClick={() => setSubMode("add_subtract")}
         >
@@ -141,27 +123,27 @@ export const DateCalculator: React.FC = () => {
           <div style={styles.calcView}>
             <div style={styles.formGroup}>
               <label style={styles.label}>From</label>
-              <input 
-                type="date" 
-                style={styles.dateInput} 
+              <input
+                type="date"
+                style={styles.dateInput}
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
               />
             </div>
             <div style={styles.formGroup}>
               <label style={styles.label}>To</label>
-              <input 
-                type="date" 
-                style={styles.dateInput} 
+              <input
+                type="date"
+                style={styles.dateInput}
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
               />
             </div>
-            
+
             <div style={styles.resultBox}>
               <div style={styles.resultLabel}>Difference</div>
               <div style={styles.resultText}>
-                {dateDiffResult.split("\n").map((line, i) => (
+                {diffResult.split("\n").map((line, i) => (
                   <div key={i} style={i === 0 ? styles.resultMain : styles.resultSub}>
                     {line}
                   </div>
@@ -173,9 +155,9 @@ export const DateCalculator: React.FC = () => {
           <div style={styles.calcView}>
             <div style={styles.formGroup}>
               <label style={styles.label}>From</label>
-              <input 
-                type="date" 
-                style={styles.dateInput} 
+              <input
+                type="date"
+                style={styles.dateInput}
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
               />
@@ -183,9 +165,9 @@ export const DateCalculator: React.FC = () => {
 
             <div style={styles.radioGroup}>
               <label style={styles.radioLabel}>
-                <input 
-                  type="radio" 
-                  name="operation" 
+                <input
+                  type="radio"
+                  name="operation"
                   checked={operation === "add"}
                   onChange={() => setOperation("add")}
                   style={styles.radioInput}
@@ -193,9 +175,9 @@ export const DateCalculator: React.FC = () => {
                 Add
               </label>
               <label style={styles.radioLabel}>
-                <input 
-                  type="radio" 
-                  name="operation" 
+                <input
+                  type="radio"
+                  name="operation"
                   checked={operation === "subtract"}
                   onChange={() => setOperation("subtract")}
                   style={styles.radioInput}
@@ -207,42 +189,39 @@ export const DateCalculator: React.FC = () => {
             <div style={styles.offsetInputs}>
               <div style={styles.offsetGroup}>
                 <label style={styles.label}>Years</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="0"
-                  max="999"
                   style={styles.numInput}
                   value={years}
-                  onChange={(e) => setYears(Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setYears(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 />
               </div>
               <div style={styles.offsetGroup}>
                 <label style={styles.label}>Months</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="0"
-                  max="999"
                   style={styles.numInput}
                   value={months}
-                  onChange={(e) => setMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setMonths(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 />
               </div>
               <div style={styles.offsetGroup}>
                 <label style={styles.label}>Days</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   min="0"
-                  max="9999"
                   style={styles.numInput}
                   value={days}
-                  onChange={(e) => setDays(Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 />
               </div>
             </div>
 
             <div style={styles.resultBox}>
               <div style={styles.resultLabel}>Date</div>
-              <div style={styles.resultMain}>{dateAddResult}</div>
+              <div style={styles.resultMain}>{addResult}</div>
             </div>
           </div>
         )}
@@ -302,6 +281,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "14px",
     outline: "none",
     width: "100%",
+    colorScheme: "dark",
   },
   radioGroup: {
     display: "flex",
