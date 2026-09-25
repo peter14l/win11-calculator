@@ -1,6 +1,7 @@
 import React from "react";
 import { Trash2 } from "lucide-react";
-import type { HistoryItem, HistoryTab, MemoryApi } from "../types";
+import { isNumberMem, type HistoryItem, type HistoryTab, type MemoryApi, type MemoryValue } from "../types";
+import { formatMatrix } from "../utils/matrixMath";
 
 interface HistorySidebarProps {
   open: boolean;
@@ -9,15 +10,16 @@ interface HistorySidebarProps {
   history: HistoryItem[];
   onSelectHistory: (result: string) => void;
   onClearHistory: () => void;
-  memory: number[];
+  memory: MemoryValue[];
   memoryApi: MemoryApi;
-  onSelectMemory: (v: number) => void;
+  onSelectMemory: (v: MemoryValue) => void;
   onClearMemory: () => void;
   activeValue: number;
   grouping: boolean;
 }
 
-const formatMem = (v: number, grouping: boolean): string => {
+const formatMem = (v: MemoryValue, grouping: boolean): string => {
+  if (!isNumberMem(v)) return formatMatrix(v);
   const abs = Math.abs(v);
   if (Number.isNaN(v)) return "Error";
   if (abs > 1e15 || (abs < 1e-12 && v !== 0)) {
@@ -123,20 +125,24 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                     >
                       MC
                     </button>
-                    <button
-                      type="button"
-                      className="memory-action"
-                      onClick={() => memoryApi.addAt(idx, activeValue)}
-                    >
-                      M+
-                    </button>
-                    <button
-                      type="button"
-                      className="memory-action"
-                      onClick={() => memoryApi.subtractAt(idx, activeValue)}
-                    >
-                      M-
-                    </button>
+                    {isNumberMem(val) && (
+                      <>
+                        <button
+                          type="button"
+                          className="memory-action"
+                          onClick={() => memoryApi.addAt(idx, activeValue)}
+                        >
+                          M+
+                        </button>
+                        <button
+                          type="button"
+                          className="memory-action"
+                          onClick={() => memoryApi.subtractAt(idx, activeValue)}
+                        >
+                          M-
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}

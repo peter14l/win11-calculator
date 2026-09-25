@@ -2,8 +2,7 @@ import React from "react";
 import { useCalculatorEngine } from "../hooks/useCalculatorEngine";
 import { useCalculatorKeyboard } from "../hooks/useCalculatorKeyboard";
 import { useHoldRepeat } from "../hooks/useHoldRepeat";
-import type { HistoryItem, HistoryTab, MemoryApi } from "../types";
-import { uid } from "../types";
+import { isNumberMem, type HistoryItem, type HistoryTab, type MemoryApi, type MemoryValue } from "../types";
 import { HistorySidebar } from "./HistorySidebar";
 
 interface StandardCalculatorProps {
@@ -13,7 +12,8 @@ interface StandardCalculatorProps {
   setHistoryTab: (tab: HistoryTab) => void;
   history: HistoryItem[];
   setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>;
-  memory: number[];
+  pushHistory: (expression: string, result: string) => void;
+  memory: MemoryValue[];
   memoryApi: MemoryApi;
   grouping: boolean;
 }
@@ -25,6 +25,7 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
   setHistoryTab,
   history,
   setHistory,
+  pushHistory,
   memory,
   memoryApi,
   grouping,
@@ -33,18 +34,18 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
     angle: "DEG",
     grouping,
     flat: true,
-    onResult: (expression, result) =>
-      setHistory((prev) =>
-        [{ id: uid(), expression: `${expression} =`, result }, ...prev].slice(0, 100),
-      ),
+    fractions: true,
+    complex: false,
+    onResult: pushHistory,
   });
 
   const {
     displayText,
     exprText,
-    rawNumber,
+    activeNumber,
     inputDigit,
     inputDecimal,
+    aOverB,
     operator,
     equals,
     percent,
@@ -72,14 +73,22 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
 
   const fontSize = displayText.length > 18 ? 22 : displayText.length > 12 ? 30 : 46;
 
-  const activeValue = parseFloat(rawNumber);
-  const activeNum = Number.isNaN(activeValue) ? 0 : activeValue;
+  const activeNum = Number.isNaN(activeNumber) ? 0 : activeNumber;
 
   const copyDisplay = () => {
-    const text = rawNumber;
+    const text = displayText;
     if (text && navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(text);
     }
+  };
+
+  const selectHistory = (result: string) => {
+    const v = parseFloat(result);
+    if (!Number.isNaN(v)) loadValue(v);
+  };
+
+  const selectMemory = (v: MemoryValue) => {
+    if (isNumberMem(v)) loadValue(v);
   };
 
   return (
@@ -109,7 +118,7 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
             className="chip-btn"
             style={{ flex: 1, opacity: memory.length > 0 ? 1 : 0.4 }}
             onClick={() => {
-              if (memory.length > 0) loadValue(memory[0]);
+              if (memory.length > 0 && isNumberMem(memory[0])) loadValue(memory[0]);
             }}
           >
             MR
@@ -202,6 +211,9 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
             +
           </button>
 
+          <button type="button" className="fluent-btn op-key" onClick={aOverB}>
+            a/b
+          </button>
           <button type="button" className="fluent-btn num-key" onClick={negate}>
             +/-
           </button>
@@ -211,7 +223,8 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
           <button type="button" className="fluent-btn num-key" onClick={inputDecimal}>
             .
           </button>
-          <button type="button" className="fluent-btn accent-key" onClick={equals}>
+
+          <button type="button" className="fluent-btn accent-key" style={{ gridColumn: "span 4" }} onClick={equals}>
             =
           </button>
         </div>
@@ -222,11 +235,11 @@ export const StandardCalculator: React.FC<StandardCalculatorProps> = ({
         tab={historyTab}
         setTab={setHistoryTab}
         history={history}
-        onSelectHistory={(result) => loadValue(parseFloat(result))}
+        onSelectHistory={selectHistory}
         onClearHistory={() => setHistory([])}
         memory={memory}
         memoryApi={memoryApi}
-        onSelectMemory={(v) => loadValue(v)}
+        onSelectMemory={selectMemory}
         onClearMemory={() => memoryApi.clear()}
         activeValue={activeNum}
         grouping={grouping}
@@ -277,23 +290,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "4px",
     marginBottom: "8px",
   },
-  memoryBtn: {
-    flex: 1,
-    background: "transparent",
-    border: "none",
-    color: "var(--text-main)",
-    fontSize: "12px",
-    fontWeight: 600,
-    height: "28px",
-    borderRadius: "4px",
-    cursor: "pointer",
-    transition: "background-color 0.1s ease",
-  },
   keypad: {
     flex: 1,
     display: "grid",
     gridTemplateColumns: "repeat(4, 1fr)",
-    gridTemplateRows: "repeat(6, 1fr)",
+    gridTemplateRows: "repeat(7, 1fr)",
     gap: "2px",
   },
 };

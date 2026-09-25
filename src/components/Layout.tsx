@@ -29,6 +29,8 @@ export type CalculatorMode =
   | "scientific"
   | "programmer"
   | "date"
+  | "matrix"
+  | "graphing"
   | "currency"
   | "volume"
   | "length"
@@ -103,6 +105,8 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: "scientific", name: "Scientific", icon: <Flame size={16} />, category: "calculator" },
     { id: "programmer", name: "Programmer", icon: <Binary size={16} />, category: "calculator" },
     { id: "date", name: "Date Calculation", icon: <Calendar size={16} />, category: "calculator" },
+    { id: "matrix", name: "Matrix", icon: <Grid size={16} />, category: "calculator" },
+    { id: "graphing", name: "Graphing", icon: <Activity size={16} />, category: "calculator" },
     
     { id: "currency", name: "Currency", icon: <DollarSign size={16} />, category: "converter" },
     { id: "volume", name: "Volume", icon: <Box size={16} />, category: "converter" },

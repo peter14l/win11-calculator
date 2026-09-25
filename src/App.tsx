@@ -5,30 +5,42 @@ import { StandardCalculator } from "./components/StandardCalculator";
 import { ScientificCalculator } from "./components/ScientificCalculator";
 import { ProgrammerCalculator } from "./components/ProgrammerCalculator";
 import { DateCalculator } from "./components/DateCalculator";
+import { MatrixCalculator } from "./components/MatrixCalculator";
+import { GraphingCalculator } from "./components/GraphingCalculator";
 import { UnitConverter } from "./components/UnitConverter";
 import { SettingsView } from "./components/SettingsView";
 import { usePersistentState } from "./hooks/usePersistentState";
-import type { AngleMode, HistoryItem, HistoryTab, MemoryApi, ThemePref } from "./types";
+import {
+  isNumberMem,
+  uid,
+  type AngleMode,
+  type HistoryItem,
+  type HistoryTab,
+  type MemoryApi,
+  type MemoryValue,
+  type ThemePref,
+} from "./types";
 
 function App() {
   const [mode, setMode] = useState<CalculatorMode>("standard");
   const [themePref, setThemePref] = usePersistentState<ThemePref>("calc.theme", "dark");
   const [grouping, setGrouping] = usePersistentState<boolean>("calc.thousands", true);
   const [angle, setAngle] = usePersistentState<AngleMode>("calc.angle", "DEG");
+  const [complex, setComplex] = usePersistentState<boolean>("calc.complex", false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyTab, setHistoryTab] = useState<HistoryTab>("history");
   const [history, setHistory] = usePersistentState<HistoryItem[]>("calc.history", []);
-  const [memory, setMemory] = usePersistentState<number[]>("calc.memory", []);
+  const [memory, setMemory] = usePersistentState<MemoryValue[]>("calc.memory", []);
 
   const memoryApi = useMemo<MemoryApi>(
     () => ({
-      store: (v) => setMemory((m) => [v, ...m].slice(0, 100)),
+      store: (v: MemoryValue) => setMemory((m) => [v, ...m].slice(0, 100)),
       clear: () => setMemory([]),
-      add: (v) => setMemory((m) => (m.length ? [m[0] + v, ...m.slice(1)] : [v])),
-      subtract: (v) => setMemory((m) => (m.length ? [m[0] - v, ...m.slice(1)] : [-v])),
+      add: (v) => setMemory((m) => (m.length && isNumberMem(m[0]) ? [m[0] + v, ...m.slice(1)] : [v, ...m])),
+      subtract: (v) => setMemory((m) => (m.length && isNumberMem(m[0]) ? [m[0] - v, ...m.slice(1)] : [-v, ...m])),
       removeAt: (i) => setMemory((m) => m.filter((_, j) => j !== i)),
-      addAt: (i, v) => setMemory((m) => m.map((x, j) => (j === i ? x + v : x))),
-      subtractAt: (i, v) => setMemory((m) => m.map((x, j) => (j === i ? x - v : x))),
+      addAt: (i, v) => setMemory((m) => m.map((x, j) => (j === i && isNumberMem(x) ? x + v : x))),
+      subtractAt: (i, v) => setMemory((m) => m.map((x, j) => (j === i && isNumberMem(x) ? x - v : x))),
     }),
     [setMemory],
   );
@@ -37,6 +49,15 @@ function App() {
     setIsHistoryOpen((open) => !open);
   }, []);
 
+  const pushHistory = useCallback(
+    (expression: string, result: string) => {
+      setHistory((prev) =>
+        [{ id: uid(), expression: `${expression} =`, result }, ...prev].slice(0, 100),
+      );
+    },
+    [setHistory],
+  );
+
   const calculatorProps = {
     isHistoryOpen,
     setIsHistoryOpen,
@@ -44,6 +65,7 @@ function App() {
     setHistoryTab,
     history,
     setHistory,
+    pushHistory,
     memory,
     memoryApi,
     grouping,
@@ -55,12 +77,22 @@ function App() {
         return <StandardCalculator {...calculatorProps} />;
       case "scientific":
         return (
-          <ScientificCalculator {...calculatorProps} angle={angle} onAngleChange={setAngle} />
+          <ScientificCalculator
+            {...calculatorProps}
+            angle={angle}
+            onAngleChange={setAngle}
+            complex={complex}
+            onComplexChange={setComplex}
+          />
         );
       case "programmer":
         return <ProgrammerCalculator grouping={grouping} />;
       case "date":
         return <DateCalculator />;
+      case "matrix":
+        return <MatrixCalculator {...calculatorProps} />;
+      case "graphing":
+        return <GraphingCalculator />;
       case "settings":
         return (
           <SettingsView
@@ -81,7 +113,7 @@ function App() {
     }
   };
 
-  const showHistoryToggle = mode === "standard" || mode === "scientific";
+  const showHistoryToggle = mode === "standard" || mode === "scientific" || mode === "matrix";
 
   return (
     <Layout

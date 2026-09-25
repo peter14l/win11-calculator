@@ -1,19 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  evaluate,
+  applyScalarBinary,
+  entryToReal,
   formatExpression,
   formatNumber,
+  formatScalar,
   groupEntry,
+  isFrac,
   lastTopLevelOp,
+  rDiv,
+  rMul,
+  rNeg,
+  toNum,
   tryEvaluate,
 } from "../utils/expressionEngine";
-import type { BinOp, EvalOpts, FuncName, Tok } from "../utils/expressionEngine";
+import type { BinOp, EvalOpts, FuncName, Scalar, Tok } from "../utils/expressionEngine";
 
 export interface EngineOptions {
   angle: "DEG" | "RAD" | "GRAD";
   grouping: boolean;
   flat: boolean;
+  fractions: boolean;
+  complex: boolean;
   onResult?: (expression: string, result: string) => void;
+}
+
+function entryToToken(ent: string): Tok | null {
+  const r = entryToReal(ent);
+  if (r === null) return null;
+  const tok: Tok = { kind: "num", value: toNum(r) };
+  if (isFrac(r)) tok.frac = r;
+  if (ent.includes("/")) tok.raw = ent;
+  return tok;
 }
 
 function commitEntry(
@@ -22,9 +40,13 @@ function commitEntry(
   ju: boolean,
 ): { toks: Tok[]; ent: string; ju: boolean } {
   if (!ent) return { toks, ent, ju };
-  const v = parseFloat(ent);
-  if (Number.isNaN(v)) return { toks: [...toks], ent: "", ju: false };
-  return { toks: [...toks, { kind: "num", value: v }], ent: "", ju: false };
+  const tok = entryToToken(ent);
+  if (tok === null) return { toks: [...toks], ent: "", ju: false };
+  return { toks: [...toks, tok], ent: "", ju: false };
+}
+
+function scalarToToken(s: Scalar): Tok {
+  return { kind: "num", value: toNum(s.re), ...(isFrac(s.re) ? { frac: s.re } : {}) };
 }
 
 function expectingOperand(toks: Tok[]): boolean {
@@ -33,13 +55,13 @@ function expectingOperand(toks: Tok[]): boolean {
   return last.kind === "op" || last.kind === "lparen";
 }
 
-function wrapOperand(toks: Tok[], name: FuncName, ans: number | null): Tok[] {
-  const arg = ans ?? 0;
+function wrapOperand(toks: Tok[], name: FuncName, ans: Scalar | null): Tok[] {
+  const arg = ans ?? { re: 0, im: 0 };
   const func: Tok = { kind: "func", name };
   const lp: Tok = { kind: "lparen" };
   const rp: Tok = { kind: "rparen" };
   if (toks.length === 0) {
-    return [func, lp, { kind: "num", value: arg }, rp];
+    return [func, lp, scalarToToken(arg), rp];
   }
   const last = toks[toks.length - 1];
   if (last.kind === "num" || last.kind === "const") {
@@ -69,13 +91,13 @@ function wrapOperand(toks: Tok[], name: FuncName, ans: number | null): Tok[] {
       return [...toks.slice(0, open), func, lp, ...toks.slice(open), rp];
     }
   }
-  return [...toks, func, lp, { kind: "num", value: arg }, rp];
+  return [...toks, func, lp, scalarToToken(arg), rp];
 }
 
 function computeRepeat(
   toks: Tok[],
   opts: EvalOpts,
-): { op: BinOp; rhs: number } | null {
+): { op: BinOp; rhs: Scalar } | null {
   const i = lastTopLevelOp(toks);
   if (i === -1) return null;
   const opTok = toks[i];
@@ -89,9 +111,9 @@ export function useCalculatorEngine(opts: EngineOptions) {
   const [tokens, setTokens] = useState<Tok[]>([]);
   const [entry, setEntry] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [ans, setAns] = useState<number | null>(null);
+  const [ans, setAns] = useState<Scalar | null>(null);
   const [justEval, setJustEval] = useState(false);
-  const repeatRef = useRef<{ op: BinOp; rhs: number } | null>(null);
+  const repeatRef = useRef<{ op: BinOp; rhs: Scalar } | null>(null);
   const optsRef = useRef<EngineOptions>(opts);
   const ansRef = useRef(ans);
 
@@ -100,9 +122,14 @@ export function useCalculatorEngine(opts: EngineOptions) {
     ansRef.current = ans;
   }, [opts, ans]);
 
-  const doCommitResult = (v: number) => {
+  const evalOpts = (): EvalOpts => {
+    const o = optsRef.current;
+    return { angle: o.angle, flat: o.flat, complex: o.complex, fractions: o.fractions };
+  };
+
+  const doCommitResult = (v: Scalar) => {
     setAns(v);
-    setEntry(formatNumber(v, false));
+    setEntry(formatScalar(v, { grouping: false, fractions: optsRef.current.fractions }));
     setTokens([]);
     setJustEval(true);
   };
@@ -140,7 +167,7 @@ export function useCalculatorEngine(opts: EngineOptions) {
     }
     if (entry === "") {
       setEntry("0.");
-    } else if (!entry.includes(".") && !entry.includes("e")) {
+    } else if (!entry.includes(".") && !entry.includes("e") && !entry.includes("/")) {
       setEntry(entry + ".");
     }
   };
@@ -153,6 +180,23 @@ export function useCalculatorEngine(opts: EngineOptions) {
       return;
     }
     if (/^[-.\d]+$/.test(entry)) setEntry(entry + "e");
+  };
+
+  const aOverB = () => {
+    if (error) return;
+    if (justEval) {
+      setTokens([]);
+      setEntry("1/");
+      setJustEval(false);
+      return;
+    }
+    if (entry.includes("/")) return;
+    if (entry === "" || entry === "-") {
+      setEntry("1/");
+      return;
+    }
+    if (!/^-?[\d.]+$/.test(entry)) return;
+    setEntry(entry + "/");
   };
 
   const operator = (op: BinOp) => {
@@ -181,16 +225,9 @@ export function useCalculatorEngine(opts: EngineOptions) {
     if (error) return;
     if (justEval) {
       const rep = repeatRef.current;
-      if (!rep) return;
+      if (!rep || ansRef.current === null) return;
       try {
-        const r = evaluate(
-          [
-            { kind: "num", value: ansRef.current ?? 0 },
-            { kind: "op", op: rep.op, unary: false },
-            { kind: "num", value: rep.rhs },
-          ],
-          optsRef.current,
-        );
+        const r = applyScalarBinary(ansRef.current, rep.rhs, rep.op, optsRef.current.complex);
         doCommitResult(r);
       } catch (e) {
         latchError(e instanceof Error ? e.message : "Invalid input");
@@ -199,41 +236,46 @@ export function useCalculatorEngine(opts: EngineOptions) {
     }
     const toks = commitEntry(tokens, entry, justEval).toks;
     if (toks.length === 0) return;
-    const res = tryEvaluate(toks, { angle: opts.angle, flat: opts.flat });
+    const res = tryEvaluate(toks, evalOpts());
     if (!res.ok) {
       if (!res.incomplete) latchError(res.error || "Invalid input");
       return;
     }
-    repeatRef.current = computeRepeat(toks, { angle: opts.angle, flat: opts.flat });
-    opts.onResult?.(formatExpression(toks), formatNumber(res.value, false));
+    repeatRef.current = computeRepeat(toks, evalOpts());
+    opts.onResult?.(
+      formatExpression(toks),
+      formatScalar(res.value, { grouping: false, fractions: opts.fractions }),
+    );
     doCommitResult(res.value);
   };
 
   const percent = () => {
     if (error) return;
     const toks = tokens;
-    let cur: number;
+    let cur: ReturnType<typeof entryToReal>;
     let raw: string;
     if (entry !== "") {
-      const v = parseFloat(entry);
-      if (Number.isNaN(v)) return;
-      cur = v;
+      cur = entryToReal(entry);
+      if (cur === null) return;
       raw = entry;
     } else {
-      const prev = tryEvaluate(toks, optsRef.current);
-      cur = prev.ok ? prev.value : (ansRef.current ?? 0);
-      raw = formatNumber(cur, false);
+      const prev = tryEvaluate(toks, evalOpts());
+      cur = prev.ok ? prev.value.re : null;
+      if (cur === null) cur = ansRef.current ? ansRef.current.re : 0;
+      raw = formatScalar({ re: cur, im: 0 }, { grouping: false, fractions: true });
     }
-    let pct = cur / 100;
+    let pct = rDiv(cur, 100);
     const i = lastTopLevelOp(toks);
     if (i !== -1) {
       const opTok = toks[i];
       if (opTok.kind === "op" && !opTok.unary) {
-        const left = tryEvaluate(toks.slice(0, i), optsRef.current);
-        if (left.ok) pct = left.value * cur / 100;
+        const left = tryEvaluate(toks.slice(0, i), evalOpts());
+        if (left.ok) pct = rMul(left.value.re, pct);
       }
     }
-    setTokens([...toks, { kind: "num", value: pct, raw: `${raw}%` }]);
+    const tok: Tok = { kind: "num", value: toNum(pct), raw: `${raw}%` };
+    if (isFrac(pct)) tok.frac = pct;
+    setTokens([...toks, tok]);
     setEntry("");
     setJustEval(false);
   };
@@ -251,9 +293,14 @@ export function useCalculatorEngine(opts: EngineOptions) {
       setJustEval(false);
       return;
     }
-    const prev = tryEvaluate(tokens, optsRef.current);
-    const v = prev.ok ? prev.value : (ansRef.current ?? 0);
-    setEntry(formatNumber(-v, false));
+    const prev = tryEvaluate(tokens, evalOpts());
+    const v: Scalar = prev.ok
+      ? prev.value
+      : ansRef.current ?? { re: 0, im: 0 };
+    const neg: Scalar = toNum(v.im) === 0
+      ? { re: rNeg(v.re), im: 0 }
+      : v;
+    setEntry(formatScalar(neg, { grouping: false, fractions: optsRef.current.fractions }));
     setJustEval(false);
   };
 
@@ -287,6 +334,7 @@ export function useCalculatorEngine(opts: EngineOptions) {
     setAns(null);
     setJustEval(false);
     repeatRef.current = null;
+    ansRef.current = null;
   };
 
   const clearEntry = () => {
@@ -330,7 +378,7 @@ export function useCalculatorEngine(opts: EngineOptions) {
     setJustEval(false);
   };
 
-  const constant = (c: "pi" | "e") => {
+  const constant = (c: "pi" | "e" | "i") => {
     if (error) return;
     let toks = justEval ? [] : tokens;
     toks = commitEntry(toks, entry, justEval).toks;
@@ -343,7 +391,7 @@ export function useCalculatorEngine(opts: EngineOptions) {
     if (error || ans === null) return;
     let toks = justEval ? [] : tokens;
     toks = commitEntry(toks, entry, justEval).toks;
-    setTokens([...toks, { kind: "num", value: ans, raw: "Ans" }]);
+    setTokens([...toks, scalarToToken(ans)]);
     setEntry("");
     setJustEval(false);
   };
@@ -359,18 +407,25 @@ export function useCalculatorEngine(opts: EngineOptions) {
   const preview = useMemo(() => {
     if (entry !== "") return null;
     if (tokens.length === 0) return null;
-    return tryEvaluate(tokens, { angle: opts.angle, flat: opts.flat });
-  }, [tokens, entry, opts.angle, opts.flat]);
+    return tryEvaluate(tokens, {
+      angle: opts.angle,
+      flat: opts.flat,
+      complex: opts.complex,
+      fractions: opts.fractions,
+    });
+  }, [tokens, entry, opts.angle, opts.flat, opts.complex, opts.fractions]);
 
   const displayText = useMemo(() => {
     if (error) return error;
     if (entry !== "") return opts.grouping ? groupEntry(entry) : entry;
     if (preview && preview.ok) {
-      return formatNumber(preview.value, opts.grouping);
+      return formatScalar(preview.value, { grouping: opts.grouping, fractions: opts.fractions });
     }
-    if (ans !== null) return formatNumber(ans, opts.grouping);
+    if (ans !== null) {
+      return formatScalar(ans, { grouping: opts.grouping, fractions: opts.fractions });
+    }
     return "0";
-  }, [error, entry, preview, ans, opts.grouping]);
+  }, [error, entry, preview, ans, opts.grouping, opts.fractions]);
 
   const exprText = useMemo(() => {
     const base = formatExpression(tokens);
@@ -384,6 +439,16 @@ export function useCalculatorEngine(opts: EngineOptions) {
 
   const rawNumber = displayText.replace(/,/g, "");
 
+  const activeNumber = (() => {
+    if (entry !== "") {
+      const r = entryToReal(entry);
+      return r === null ? NaN : toNum(r);
+    }
+    if (tokens.length === 0 && ans !== null) return toNum(ans.re);
+    if (preview && preview.ok) return toNum(preview.value.re);
+    return NaN;
+  })();
+
   return {
     tokens,
     entry,
@@ -393,11 +458,13 @@ export function useCalculatorEngine(opts: EngineOptions) {
     displayText,
     exprText,
     rawNumber,
+    activeNumber,
     preview,
     pendingOpIdx,
     inputDigit,
     inputDecimal,
     inputExp,
+    aOverB,
     operator,
     equals,
     percent,

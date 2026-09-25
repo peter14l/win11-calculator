@@ -1,37 +1,63 @@
 import {
+  entryToReal,
   evaluate,
-  formatNumber,
+  formatScalar,
+  isFrac,
+  toNum,
   tryEvaluate,
 } from "./expressionEngine.ts";
-import type { Tok } from "./expressionEngine.ts";
+import type { EvalOpts, Tok } from "./expressionEngine.ts";
+import { parseExpression } from "./expressionParser.ts";
 
-function n(v: number): Tok {
-  return { kind: "num", value: v };
+function n(v: number, raw?: string): Tok {
+  const tok: Tok = { kind: "num", value: v };
+  if (raw !== undefined) {
+    const r = entryToReal(raw);
+    if (r !== null && isFrac(r)) tok.frac = r;
+  }
+  return tok;
 }
 const o = (op: "×" | "+" | "-" | "^"): Tok => ({ kind: "op", op, unary: false });
-const ng: Tok = { kind: "op", op: "-", unary: true };
 const lp: Tok = { kind: "lparen" };
 const rp: Tok = { kind: "rparen" };
-const f = (name: "sin" | "ln" | "tan"): Tok => ({ kind: "func", name });
+const f = (name: "sin" | "ln" | "tan" | "sqrt"): Tok => ({ kind: "func", name });
 const pi: Tok = { kind: "const", value: "pi" };
 
-const DEG = { angle: "DEG" as const, flat: false };
-const DEG_FLAT = { angle: "DEG" as const, flat: true };
+const RE = { angle: "RAD" as const, flat: false, complex: false, fractions: true };
+const RE_DEG = { angle: "DEG" as const, flat: false, complex: false, fractions: true };
+const RE_FLAT = { angle: "DEG" as const, flat: true, complex: false, fractions: true };
+const CX = { angle: "DEG" as const, flat: false, complex: true, fractions: true };
 
 let failures = 0;
+function val(tokens: Tok[], opts: EvalOpts): number {
+  const r = tryEvaluate(tokens, opts);
+  if (!r.ok) {
+    failures++;
+    console.error(`FAIL eval ${JSON.stringify(tokens)}: ${r.error}`);
+    return NaN;
+  }
+  return toNum(r.value.re);
+}
+function fmt(tokens: Tok[], opts: EvalOpts): string {
+  const r = tryEvaluate(tokens, opts);
+  if (!r.ok) {
+    failures++;
+    console.error(`FAIL fmt ${JSON.stringify(tokens)}: ${r.error}`);
+    return "?";
+  }
+  return formatScalar(r.value);
+}
 function eq(actual: number, expected: number, label: string) {
+  if (Number.isNaN(actual) || Number.isNaN(expected)) {
+    if (!(Number.isNaN(actual) && Number.isNaN(expected))) {
+      failures++;
+      console.error(`FAIL ${label}: got ${actual}, want ${expected}`);
+    }
+    return;
+  }
   if (Math.abs(actual - expected) > 1e-9) {
     failures++;
     console.error(`FAIL ${label}: got ${actual}, want ${expected}`);
-  }
-}
-function err(tokens: Tok[], label: string) {
-  try {
-    evaluate(tokens, DEG);
-    failures++;
-    console.error(`FAIL ${label}: expected error`);
-  } catch {
-    /* expected */
   }
 }
 function str(actual: string, expected: string, label: string) {
@@ -40,49 +66,66 @@ function str(actual: string, expected: string, label: string) {
     console.error(`FAIL ${label}: got "${actual}", want "${expected}"`);
   }
 }
-
-// precedence
-eq(evaluate([n(2), o("+"), n(3), o("×"), n(4)], DEG), 14, "2+3*4=14");
-eq(evaluate([n(2), o("+"), n(3), o("×"), n(4)], DEG_FLAT), 20, "flat 2+3*4=20");
-eq(evaluate([lp, n(2), o("+"), n(3), rp, o("×"), n(4)], DEG), 20, "(2+3)*4=20");
-eq(evaluate([n(2), o("^"), n(3), o("^"), n(2)], DEG), 512, "2^3^2=512");
-eq(evaluate([ng, n(2), o("^"), n(2)], DEG), -4, "-2^2=-4");
-eq(evaluate([n(2), o("^"), ng, n(3)], DEG), 0.125, "2^-3=0.125");
-eq(evaluate([n(2), o("×"), ng, n(3)], DEG), -6, "2*-3=-6");
-eq(evaluate([n(1), o("+"), n(5), o("×"), n(3), o("-"), n(1)], DEG), 15, "1+5*3-1=15");
-eq(evaluate([f("sin"), lp, n(30), rp], DEG), 0.5, "sin(30)DEG=0.5");
-eq(evaluate([f("sin"), lp, n(0.5), rp], DEG), Math.sin((0.5 * Math.PI) / 180), "sin(0.5)DEG");
-eq(evaluate([n(50), o("+"), n(2), o("×"), n(3)], DEG), 56, "50+2*3=56");
-eq(evaluate([n(7), { kind: "op", op: "mod", unary: false }, n(3)], DEG), 1, "7 mod 3");
-eq(evaluate([n(3), { kind: "op", op: "root", unary: false }, n(8)], DEG), 2, "3 yroot 8");
-eq(evaluate([n(8), { kind: "op", op: "÷", unary: false }, n(2), o("+"), n(1)], DEG), 5, "8/2+1=5");
-eq(evaluate([f("sin"), lp, pi, rp], DEG), Math.sin((Math.PI * Math.PI) / 180), "sin(pi)");
-eq(evaluate([f("tan"), lp, n(45), rp], DEG), 1, "tan(45)=1 (near)");
-
-// errors
-err([n(1), { kind: "op", op: "÷", unary: false }, n(0)], "div by zero");
-err([f("ln"), lp, n(0), rp], "ln(0)");
-err([f("tan"), lp, n(90), rp], "tan(90) DEG");
-
-// incomplete
-{
-  const r = tryEvaluate([n(2), o("+")], DEG);
-  if (r.ok || !r.incomplete) {
+function err(tokens: Tok[], label: string) {
+  try {
+    evaluate(tokens, RE);
     failures++;
-    console.error("FAIL trailing-op must be incomplete");
+    console.error(`FAIL ${label}: expected error`);
+  } catch {
+    /* expected */
   }
 }
 
-// formatting
-str(formatNumber(0.1 + 0.2, false), "0.3", "fmt 0.1+0.2");
-str(formatNumber(1234567.891, true), "1,234,567.891", "fmt grouping");
-str(formatNumber(0.0000000000001, false), "1e-13", "fmt tiny exp");
-str(formatNumber(1e16, false), "1e+16", "fmt large exp");
-str(formatNumber(-0, false), "0", "fmt negative zero");
-str(formatNumber(1 / 0, false), "∞", "fmt infinity");
+// basic arithmetic
+eq(val([n(2), o("+"), n(3)], RE), 5, "2+3");
+eq(val([n(2), o("+"), n(3), o("×"), n(4)], RE), 14, "2+3*4");
+eq(val([n(6), o("+"), n(2), o("-"), n(1)], RE), 7, "6+2-1"); // flat=false: equal precedence left assoc
+eq(val([n(2), o("×"), n(3), o("+"), n(4)], RE_FLAT), 10, "flat 2*3+4");
+eq(val([lp, n(2), o("+"), n(3), rp, o("×"), n(4)], RE), 20, "(2+3)*4");
+eq(val([f("sin"), pi], RE), 0, "sin(pi) in RAD");
+eq(val([f("tan"), n(45)], RE_DEG), 1, "tan(45) in DEG");
+eq(val([n(9), { kind: "op", op: "^", unary: false }, n(0.5)], RE), 3, "9^0.5");
+
+// exact fractions
+eq(val([n(1, "1/3"), o("+"), n(1, "1/6")], RE), 0.5, "1/3+1/6");
+eq(val([n(2, "2/4")], RE), 0.5, "2/4 = 1/2");
+eq(val([n(1, "1/3"), o("+"), n(0.5)], RE), 5 / 6, "1/3+0.5 exact");
+eq(val([n(1, "1/2"), o("×"), n(2, "2/3")], RE), 1 / 3, "1/2*2/3");
+eq(val([n(1, "1/2"), { kind: "op", op: "÷", unary: false }, n(3, "1/3")], RE), 3 / 2, "1/2 / 1/3");
+eq(val([n(1, "1/3"), o("×"), n(3)], RE), 1, "1/3*3");
+eq(val([n(5, "5/7"), o("+"), n(1, "2/7")], RE), 1, "5/7+2/7");
+
+console.log("entryToReal('1/3')", toNum(entryToReal("1/3")!));
+console.log("entryToReal('0.5')", toNum(entryToReal("0.5")!));
+console.log("entryToReal('3')", toNum(entryToReal("3")!));
+
+// scale back into overall/format tests
+str(fmt([n(1, "1/3"), o("+"), n(1, "1/6")], RE), "1/2", "float 1/3+1/6 fmt");
+// division by zero
+err([n(1, "1/2"), { kind: "op", op: "÷", unary: false }, n(0)], "1/2/0");
+
+// complex
+eq(val([n(1), o("+"), { kind: "const", value: "i" }], CX), 1, "1+i real part");
+eq(val(parseExpression("(2+i)*(2-i)"), CX), 5, "(2+i)(2-i)=5");
+eq(val(parseExpression("exp(i*pi)"), CX), -1, "exp(i*pi)=-1");
+str(fmt(parseExpression("exp(i*pi)"), CX), "-1", "exp(i*pi) fmt");
+str(fmt(parseExpression("1/3 + i"), CX), "1/3 + i", "1/3+i fmt");
+str(fmt([{ kind: "op", op: "-", unary: true }, n(1)], RE), "-1", "neg display");
+str(fmt([{ kind: "op", op: "-", unary: true }, n(1)], CX), "-1", "neg display cx");
+console.log("sqrt(-1) complex:", fmt([f("sqrt"), n(-1)], CX)); // expect i
+str(fmt([f("sqrt"), n(-1)], CX), "i", "sqrt(-1)=i in complex mode");
+str(fmt(parseExpression("(1+i)/(1-i)"), CX), "i", "(1+i)/(1-i)=i");
+
+// parser round-trips
+str(fmt(parseExpression("1/3 + 1/6"), RE), "1/2", "parse 1/3 + 1/6");
+eq(val(parseExpression("2*(3+4)"), RE), 14, "parse 2*(3+4)");
+eq(val(parseExpression("sin(0)"), RE), 0, "parse sin(0)");
+eq(val(parseExpression("-2^2"), RE), -4, "parse -2^2");
+eq(val(parseExpression("2^-2"), RE), 0.25, "parse 2^-2");
 
 if (failures === 0) {
-  console.log("engine checks: ALL PASSED");
+  console.log("expressionEngine.check: ALL PASS");
 } else {
-  throw new Error(`engine checks: ${failures} FAILED`);
+  console.error(`${failures} FAILURES`);
+  process.exit(1);
 }

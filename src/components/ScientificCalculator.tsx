@@ -2,21 +2,25 @@ import React, { useState } from "react";
 import { useCalculatorEngine } from "../hooks/useCalculatorEngine";
 import { useCalculatorKeyboard } from "../hooks/useCalculatorKeyboard";
 import { useHoldRepeat } from "../hooks/useHoldRepeat";
-import type { AngleMode, HistoryItem, HistoryTab, MemoryApi } from "../types";
-import { uid } from "../types";
+import type { AngleMode, HistoryItem, HistoryTab, MemoryApi, MemoryValue } from "../types";
+import { isNumberMem, uid } from "../types";
 import { HistorySidebar } from "./HistorySidebar";
 
 type FuncKey =
   | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
   | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh"
   | "ln" | "log" | "exp" | "pow10"
-  | "rcp" | "sqr" | "cube" | "sqrt" | "abs" | "fact";
+  | "rcp" | "sqr" | "cube" | "sqrt" | "abs" | "fact"
+  | "conj" | "re" | "im" | "arg";
 
-const ENGINE_FUNC: Record<FuncKey, Parameters<ReturnType<typeof useCalculatorEngine>["func"]>[0]> = {
+type EngineFunc = Parameters<ReturnType<typeof useCalculatorEngine>["func"]>[0];
+
+const ENGINE_FUNC: Record<FuncKey, EngineFunc> = {
   sin: "sin", cos: "cos", tan: "tan", asin: "asin", acos: "acos", atan: "atan",
   sinh: "sinh", cosh: "cosh", tanh: "tanh", asinh: "asinh", acosh: "acosh", atanh: "atanh",
   ln: "ln", log: "log", exp: "exp", pow10: "pow10",
   rcp: "rcp", sqr: "sqr", cube: "cube", sqrt: "sqrt", abs: "abs", fact: "fact",
+  conj: "conj", re: "re", im: "im", arg: "arg",
 };
 
 interface ScientificCalculatorProps {
@@ -26,11 +30,13 @@ interface ScientificCalculatorProps {
   setHistoryTab: (tab: HistoryTab) => void;
   history: HistoryItem[];
   setHistory: React.Dispatch<React.SetStateAction<HistoryItem[]>>;
-  memory: number[];
+  memory: MemoryValue[];
   memoryApi: MemoryApi;
   grouping: boolean;
   angle: AngleMode;
   onAngleChange: (angle: AngleMode) => void;
+  complex: boolean;
+  onComplexChange: (complex: boolean) => void;
 }
 
 export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
@@ -45,6 +51,8 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
   grouping,
   angle,
   onAngleChange,
+  complex,
+  onComplexChange,
 }) => {
   const [isSecondActive, setIsSecondActive] = useState(false);
 
@@ -52,6 +60,8 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
     angle,
     grouping,
     flat: false,
+    fractions: true,
+    complex,
     onResult: (expression, result) =>
       setHistory((prev) =>
         [{ id: uid(), expression: `${expression} =`, result }, ...prev].slice(0, 100),
@@ -62,6 +72,7 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
     displayText,
     exprText,
     rawNumber,
+    activeNumber,
     inputDigit,
     inputDecimal,
     inputExp,
@@ -75,6 +86,7 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
     parenClose,
     func,
     constant,
+    aOverB,
     recallAns,
     loadValue,
   } = engine;
@@ -98,16 +110,24 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
 
   const call = (name: FuncKey) => func(ENGINE_FUNC[name]);
 
-  const fontSize = displayText.length > 18 ? 22 : displayText.length > 12 ? 30 : 46;
+const fontSize = displayText.length > 18 ? 22 : displayText.length > 12 ? 30 : 46;
 
-  const activeValue = parseFloat(rawNumber);
-  const activeNum = Number.isNaN(activeValue) ? 0 : activeValue;
+  const active = Number.isNaN(activeNumber) ? 0 : activeNumber;
 
   const copyDisplay = () => {
     const text = rawNumber;
     if (text && navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(text);
     }
+  };
+
+  const selectHistory = (result: string) => {
+    const v = parseFloat(result);
+    if (!Number.isNaN(v)) loadValue(v);
+  };
+
+  const selectMemory = (v: MemoryValue) => {
+    if (isNumberMem(v)) loadValue(v);
   };
 
   return (
@@ -151,6 +171,18 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
           <button type="button" className="chip-btn" onClick={() => constant("e")}>
             e
           </button>
+          <button type="button" className="chip-btn" onClick={aOverB}>
+            a/b
+          </button>
+          <button
+            type="button"
+            className="chip-btn"
+            style={{ backgroundColor: complex ? "var(--bg-btn-hover)" : undefined }}
+            onClick={() => onComplexChange(!complex)}
+            title="Enable complex numbers (i)"
+          >
+            i
+          </button>
         </div>
 
         <div style={styles.memoryBar}>
@@ -167,18 +199,18 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
             className="chip-btn"
             style={{ flex: 1, opacity: memory.length > 0 ? 1 : 0.4 }}
             onClick={() => {
-              if (memory.length > 0) loadValue(memory[0]);
+              if (memory.length > 0 && isNumberMem(memory[0])) loadValue(memory[0]);
             }}
           >
             MR
           </button>
-          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.add(activeNum)}>
+          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.add(active)}>
             M+
           </button>
-          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.subtract(activeNum)}>
+          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.subtract(active)}>
             M-
           </button>
-          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.store(activeNum)}>
+          <button type="button" className="chip-btn" style={{ flex: 1 }} onClick={() => memoryApi.store(active)}>
             MS
           </button>
           <button
@@ -190,11 +222,36 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
               setHistoryTab("memory");
             }}
           >
-            Mv
+Mv
           </button>
         </div>
 
-        <div style={styles.keypad}>
+        <div
+          style={{
+            ...styles.keypad,
+            gridTemplateRows: complex ? "repeat(9, 1fr)" : "repeat(8, 1fr)",
+          }}
+        >
+          {complex && (
+            <>
+              <button type="button" className="fluent-btn op-key" onClick={() => constant("i")}>
+                i
+              </button>
+              <button type="button" className="fluent-btn op-key" onClick={() => call("re")}>
+                Re
+              </button>
+              <button type="button" className="fluent-btn op-key" onClick={() => call("im")}>
+                Im
+              </button>
+              <button type="button" className="fluent-btn op-key" onClick={() => call("conj")}>
+                conj
+              </button>
+              <button type="button" className="fluent-btn op-key" onClick={() => call("arg")}>
+                arg
+              </button>
+            </>
+          )}
+
           {/* Row 1 */}
           <button type="button" className="fluent-btn op-key" onClick={() => call(isSecondActive ? "asin" : "sin")}>
             {isSecondActive ? "sin⁻¹" : "sin"}
@@ -330,18 +387,18 @@ export const ScientificCalculator: React.FC<ScientificCalculatorProps> = ({
         </div>
       </div>
 
-      <HistorySidebar
+<HistorySidebar
         open={isHistoryOpen}
         tab={historyTab}
         setTab={setHistoryTab}
         history={history}
-        onSelectHistory={(result) => loadValue(parseFloat(result))}
+        onSelectHistory={selectHistory}
         onClearHistory={() => setHistory([])}
         memory={memory}
         memoryApi={memoryApi}
-        onSelectMemory={(v) => loadValue(v)}
+        onSelectMemory={selectMemory}
         onClearMemory={() => memoryApi.clear()}
-        activeValue={activeNum}
+        activeValue={active}
         grouping={grouping}
       />
     </div>
